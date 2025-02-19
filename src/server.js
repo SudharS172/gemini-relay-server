@@ -66,6 +66,24 @@ wss.on('connection', (clientWs, req) => {
     // Handle Gemini disconnection
     geminiWs.on('close', (code, reason) => {
         console.log(`[${new Date().toISOString()}] Gemini disconnected:`, code, reason.toString());
+        
+        // Send error details to client
+        if (clientWs.readyState === WebSocket.OPEN) {
+            const reasonStr = reason.toString();
+            clientWs.send(JSON.stringify({
+                error: {
+                    code,
+                    message: 'Gemini connection closed',
+                    details: reasonStr,
+                    suggestions: reasonStr.includes('model') ? [
+                        'Check if the model name is correct',
+                        'Make sure to use the full model path (e.g., "models/gemini-pro-vision")',
+                        'Verify the model is available in your region'
+                    ] : []
+                }
+            }));
+        }
+        
         clientWs.close();
         clients.delete(clientWs);
     });
