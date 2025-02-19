@@ -14,10 +14,11 @@ const wss = new WebSocketServer({ server });
 const clients = new Map();
 
 // Handle incoming WebSocket connections from Android clients
-wss.on('connection', (clientWs) => {
-    console.log('New client connected');
+wss.on('connection', (clientWs, req) => {
+    console.log(`[${new Date().toISOString()}] New client connected from ${req.socket.remoteAddress}`);
     
     // Create a connection to Gemini
+    console.log(`[${new Date().toISOString()}] Connecting to Gemini API...`);
     const geminiWs = new WebSocket(process.env.GEMINI_WS_URL, {
         headers: {
             'x-goog-api-key': process.env.GEMINI_API_KEY
@@ -27,17 +28,26 @@ wss.on('connection', (clientWs) => {
     // Store the connection pair
     clients.set(clientWs, geminiWs);
     
+    // Handle successful Gemini connection
+    geminiWs.on('open', () => {
+        console.log(`[${new Date().toISOString()}] Connected to Gemini API`);
+    });
+    
     // Handle messages from Android client
     clientWs.on('message', (data) => {
-        console.log('Received from client:', data.toString());
+        const message = data.toString();
+        console.log(`[${new Date().toISOString()}] Client → Gemini:`, message);
         if (geminiWs.readyState === WebSocket.OPEN) {
             geminiWs.send(data);
+        } else {
+            console.log(`[${new Date().toISOString()}] Warning: Gemini connection not ready (state: ${geminiWs.readyState})`);
         }
     });
     
     // Handle messages from Gemini
     geminiWs.on('message', (data) => {
-        console.log('Received from Gemini:', data.toString());
+        const message = data.toString();
+        console.log(`[${new Date().toISOString()}] Gemini → Client:`, message);
         if (clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(data);
         }
@@ -45,7 +55,7 @@ wss.on('connection', (clientWs) => {
     
     // Handle client disconnection
     clientWs.on('close', () => {
-        console.log('Client disconnected');
+        console.log(`[${new Date().toISOString()}] Client disconnected`);
         const geminiWs = clients.get(clientWs);
         if (geminiWs) {
             geminiWs.close();
@@ -55,18 +65,29 @@ wss.on('connection', (clientWs) => {
     
     // Handle Gemini disconnection
     geminiWs.on('close', (code, reason) => {
-        console.log('Gemini disconnected:', code, reason.toString());
+        console.log(`[${new Date().toISOString()}] Gemini disconnected:`, code, reason.toString());
         clientWs.close();
         clients.delete(clientWs);
     });
     
-    // Handle errors
-    clientWs.on('error', console.error);
-    geminiWs.on('error', console.error);
+    // Handle Gemini errors
+    geminiWs.on('error', (error) => {
+        console.error(`[${new Date().toISOString()}] Gemini WebSocket error:`, error);
+        clientWs.send(JSON.stringify({
+            error: {
+                message: 'Error connecting to Gemini API',
+                details: error.message
+            }
+        }));
+    });
+    
+    // Handle client errors
+    clientWs.on('error', (error) => {
+        console.error(`[${new Date().toISOString()}] Client WebSocket error:`, error);
+    });
 });
 
-// Start the server
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+const port = process.env.PORT || 3000;
+server.listen(port, () => {
+    console.log(`[${new Date().toISOString()}] Server running on port ${port}`);
 });
